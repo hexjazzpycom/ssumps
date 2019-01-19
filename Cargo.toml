@@ -1,7 +1,19 @@
 [package]
 name = "ssumps"
-version = "0.1.0"
+description = "Subset sum problem. Pseudo-polynomial time algorithm implementation."
+repository = "https://github.com/hexjazzpycom/ssumps"
+license = "MIT"
+readme = "README.md"
+version = "0.1.0-alpha.0"
 authors = ["Lex W <hex@jazzpy.com>"]
 edition = "2018"
+
+[lib]
+name = "ssumps"
+path = "src/lib.rs"
+
+[[bin]]
+name = "naive"
+path = "examples/naive.rs"
 
 [dependencies]
