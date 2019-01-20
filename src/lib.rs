@@ -54,6 +54,12 @@ pub fn find_subset_naive(input_sum: &u32, input_set: &Vec<u32>) -> Vec<u32> {
 }
 
 
+pub fn find_subset(input_sum: &u32, input_set: &Vec<u32>) -> Vec<u32> {
+    let mut result_numbers: Vec<u32> = Vec::new();
+    return result_numbers;
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
