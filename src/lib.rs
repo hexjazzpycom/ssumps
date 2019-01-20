@@ -1,3 +1,5 @@
+use std::mem::size_of;
+
 pub fn find_subset_naive(input_sum: &u32, input_set: &Vec<u32>) -> Vec<u32> {
     // lazy - returns as far as find result subset, not process all input set when it not necessary
     // memory optimized - keep in memory only two rows of bit table and accumulate calculations in
@@ -51,107 +53,101 @@ pub fn find_subset_naive(input_sum: &u32, input_set: &Vec<u32>) -> Vec<u32> {
     return result_numbers;
 }
 
-pub fn find_subset(raw_input_sum: &u32, raw_input_set: &Vec<u32>) -> Vec<u32> {
-    let register_size = 64_u64;
-    let input_sum = *raw_input_sum as u64;
-    let input_set: Vec<u64> = raw_input_set.into_iter().map(|x| *x as u64).collect();
-    let rows_count = input_set.len() as u64 + 1;
-    let block_count: u64 = (input_sum + 1) / register_size + 1;
+pub fn find_subset(raw_input_sum: &u32, input_set: &Vec<u32>) -> Vec<u32> {
+    let register_size: usize = size_of::<usize>() * 8;
+    let input_sum = *raw_input_sum;
+    let block_count: usize = ((input_sum + 1) / register_size as u32 + 1) as usize;
 
-    println!("calc_sum_v3");
-    println!("s = {}", input_sum);
-    println!("n = {}", input_set.len());
+    let mut prev_vector: Vec<usize> = vec![0; block_count];
+    let mut result_vector: Vec<u32> = vec![0; block_count * register_size + 1];
 
-    let mut prev_vector: Vec<u64> = vec![0; block_count as usize];
-    let mut result_vector: Vec<u64> = vec![0; (block_count * register_size + 1) as usize];
+    let exit_mask = 1usize << ((input_sum + 1) % register_size as u32 - 1);
+    let exit_block = block_count - 1;
+    prev_vector[0] = 1usize;
+
+    let max_num = usize::max_value();
 
     let mut found = false;
-    let mut maxrow = 0;
+    // it's necessary to increment leght of input set, because algorithm requires one additional
+    // zero-row
+    let rows_count = input_set.len() + 1;
+    for row_num in 1_usize..rows_count {
+        let current_input_set_value = input_set[row_num - 1]; // X[i]
 
-    let exit_mask = 1u64 << ((input_sum + 1) % register_size - 1);
-    let exit_block = block_count - 1;
-    prev_vector[0] = 1u64;
+        let mut current_vector: Vec<usize> = Vec::with_capacity(block_count);
 
-    let mut max_num = 1u64;
-    for i in 1..register_size {
-        max_num = max_num | 1u64 << i;
-    }
-
-    let mut processed_rows = 0u64;
-    for i in 1_u64..rows_count {
-        processed_rows += 1;
-        if maxrow > 0 {
-            break;
-        }
-        let current_input_set_value = input_set[i as usize - 1];
-        let matrix_row = i + 1;
-        let mut current_vector: Vec<u64> = Vec::with_capacity(block_count as usize);
-        for current_block_num in 0_u64..block_count {
-
-            let mut current_block = prev_vector[current_block_num as usize].clone();
+        for current_block_num in 0_usize..block_count {
+            let prev_vector_block = &prev_vector[current_block_num];
+            let mut current_block = prev_vector_block.clone(); // make at first T[i, j] = T[i-1, j]
 
             if current_block == max_num {
+                // there is no sence to make calculations if all bits in block is 1
+                // because the result of calculations would be the same
                 current_vector.push(current_block);
                 continue;
-                if current_block_num == exit_block {
-                    found = true;
-                    break;
-                } else {
-                    continue;
-                };
             };
 
-            let mut shifted_block = 0_u64;
             let shift_size = current_input_set_value;
-            let prev_block_shift_position = shift_size % register_size;
+            let prev_block_num = (shift_size / (register_size as u32)) as usize;
 
-            if shift_size / register_size == current_block_num {
-                shifted_block = prev_vector[0] << prev_block_shift_position;
-            } else if shift_size / register_size > current_block_num {
-                shifted_block = 0u64;
-            } else {
-                let prev_block_abs_position = current_block_num - shift_size / register_size - 1;
-                shifted_block = prev_vector[prev_block_abs_position as usize]
-                    >> (register_size - prev_block_shift_position);
-                shifted_block = shifted_block
-                    | prev_vector[(prev_block_abs_position + 1) as usize]
-                        << prev_block_shift_position;
+            if prev_block_num == current_block_num {
+
+                let prev_block_shift_position = (shift_size % (register_size as u32)) as usize;
+                let shifted_block = prev_vector[0] << prev_block_shift_position;
+                current_block = current_block | shifted_block;
+
+            } else if prev_block_num < current_block_num {
+
+                let prev_block_shift_position = (shift_size % (register_size as u32)) as usize;
+                let prev_block_abs_position = current_block_num - prev_block_num - 1;
+
+                if prev_block_shift_position == 0 {
+                    current_block = current_block | prev_vector[prev_block_abs_position + 1];
+                } else {
+                    let mut shifted_block = prev_vector[prev_block_abs_position]
+                        >> (register_size - prev_block_shift_position);
+                    shifted_block = shifted_block
+                        | prev_vector[prev_block_abs_position + 1] << prev_block_shift_position;
+                    current_block = current_block | shifted_block;
+                };
+
             };
-            current_block = current_block | shifted_block;
 
-            if current_block ^ prev_vector[current_block_num as usize] != 0 {
+            // check for bits what became 1 in this iteration
+            if current_block ^ prev_vector_block != 0 {
                 // means that we found new numbers
-                let mut check_mask = 1u64;
-                let new_bytes_block = current_block ^ prev_vector[current_block_num as usize];
+                // and now it's necessary to put intermediate calculations into result_vector
+                // Unfortunately, I have no idea how to unpack numbers accordingly changed bits
+                // more easer.
+                let mut check_mask = 1usize;
+                let new_bits_block = current_block ^ prev_vector_block;
                 if result_vector[(current_block_num * register_size) as usize] == 0
-                    && new_bytes_block & check_mask != 0
+                    && new_bits_block & check_mask != 0
                 {
                     result_vector[(current_block_num * register_size) as usize] =
                         current_input_set_value;
                 };
-                for byte_position in 1_u64..register_size {
+                for bit_position in 1_usize..register_size {
                     check_mask <<= 1;
-                    if new_bytes_block & check_mask != 0
+                    if new_bits_block & check_mask != 0
                         && result_vector
-                            [(current_block_num * register_size + byte_position) as usize]
+                            [(current_block_num * register_size + bit_position) as usize]
                             == 0
                     {
                         result_vector
-                            [(current_block_num * register_size + byte_position) as usize] =
+                            [(current_block_num * register_size + bit_position) as usize] =
                             current_input_set_value;
                     };
                 }
             };
 
             // to drop unnecessary part
-            current_block = current_block & max_num;
+            // current_block = current_block & max_num;
 
             current_vector.push(current_block);
 
             if (current_block_num == exit_block) && (current_block & exit_mask > 0) {
                 found = true;
-                maxrow = i;
-                break;
             };
         }
 
@@ -161,27 +157,20 @@ pub fn find_subset(raw_input_sum: &u32, raw_input_set: &Vec<u32>) -> Vec<u32> {
         };
     }
 
-    println!("s = {}", input_sum);
-    println!("n = {}", input_set.len());
-    println!("{:?}", &result_vector);
-    let mut result_numbers: Vec<u32> = Vec::new();
+    let mut result_numbers: Vec<u32> = Vec::with_capacity(rows_count / 2);
     if found {
-        let mut start_val = 0;
-        let mut jdesc: usize = input_sum as usize;
-        println!("maxrow {} {}", maxrow, rows_count);
-        println!("processed_rows {} {}", processed_rows, rows_count);
+        let mut column_index: usize = input_sum as usize;
 
         for i in 0..input_set.len() {
-            if jdesc <= 1 {
+            if column_index <= 1 {
                 break;
             };
-            result_numbers.push(result_vector[jdesc] as u32);
-            jdesc -= result_vector[jdesc] as usize;
+            result_numbers.push(result_vector[column_index]);
+            column_index -= result_vector[column_index] as usize;
         }
     }
     return result_numbers;
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -265,5 +254,36 @@ mod tests {
         let input_sum = 33u32;
         let output_set = find_subset(&input_sum, &input_set);
         assert_eq!(output_set, vec![3, 2, 11, 17],);
+    }
+
+    #[test]
+    fn test_find_subset__subset_exists_and_input_set_bigger_than_batch_size__subset_vector() {
+        let raw_input_set = vec![0, 11, 0, 7, 2, 3, 0, 3, 4];
+        let input_set: Vec<u32> = raw_input_set
+            .iter()
+            .cycle()
+            .take(raw_input_set.len() * 130)
+            .map(|x| *x)
+            .collect();
+        let input_sum: u32 = 13 * 130 + 1;
+        let output_set = find_subset(&input_sum, &input_set);
+        assert_eq!(
+            output_set,
+            vec![
+                11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4,
+                3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3,
+                2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7,
+                11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4,
+                3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3,
+                2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7,
+                11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4,
+                3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3,
+                2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7,
+                11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4,
+                3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3,
+                2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7,
+                11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11, 4, 3, 3, 2, 7, 11
+            ],
+        );
     }
 }
